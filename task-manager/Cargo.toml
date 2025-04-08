@@ -1,0 +1,8 @@
+[package]
+name = "task-manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.44.2", features = ["full"] }
+clap = "4.5.35"
