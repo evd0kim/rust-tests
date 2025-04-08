@@ -19,10 +19,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .help("Stops thread")
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("t1")
+                .long("t1")
+                .help("Target task 1")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("t2")
+                .long("t2")
+                .help("Target task 2")
+                .action(ArgAction::SetTrue),
+        )
         .get_matches();
 
+
     if matches.get_flag("stop") {
-        stop_tasks().await?;
+        if matches.get_flag("t1") {
+            println!("Stopping Task 1...");
+            stop_task("t1").await?;
+        }
+
+        if matches.get_flag("t2") {
+            println!("Stopping Task 2...");
+            stop_task("t2").await?;
+        }
+
+        // if no specific task was mentioned
+        if !matches.get_flag("t1") && !matches.get_flag("t2") {
+            println!("No task selected. Use --t1, --t2 or --t3 with --stop.");
+        }
+
         return Ok(());
     }
 
@@ -57,6 +84,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let task1 = tokio::spawn(async move {
         debug!("Task 1 started");
+        if let Err(e) = save_task_pid("task1") {
+            error!("Failed to write task2.pid: {}", e);
+        }
         tokio::select! {
             Ok(_) = rx1.recv() => {
                 info!("Task 1 is cancelling due to shutdown signal");
@@ -70,6 +100,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let task2 = tokio::spawn(async move {
         debug!("Task 2 started");
+        if let Err(e) = save_task_pid("task2") {
+            error!("Failed to write task2.pid: {}", e);
+        }
         tokio::select! {
             Ok(_) = rx2.recv() => {
                 info!("Task 2 is cancelling due to shutdown signal");
@@ -115,6 +148,12 @@ async fn stop_tasks() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn stop_task(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // You can implement real shutdown logic here (send to channel, etc.)
+    println!("Simulated stopping of task: {}", name);
+    Ok(())
+}
+
 // Setup resources (database connections, file handles, etc.)
 async fn setup_resources() -> Result<(), Box<dyn std::error::Error>> {
     info!("Setting up application resources");
@@ -137,9 +176,24 @@ fn save_pid() -> std::io::Result<()> {
     Ok(())
 }
 
+fn save_task_pid(task_name: &str) -> std::io::Result<()> {
+    let pid = std::process::id();
+    info!("Saving PID {} to file", task_name);
+    let filename = format!("{}.pid", task_name);
+    let mut file = File::create(filename)?;
+    writeln!(file, "{}", pid)?;
+    Ok(())
+}
+
 fn cleanup_pid() {
     debug!("Removing PID file");
     if let Err(e) = std::fs::remove_file("task_manager.pid") {
+        error!("Failed to remove PID file: {}", e);
+    }
+    if let Err(e) = std::fs::remove_file("task1.pid") {
+        error!("Failed to remove PID file: {}", e);
+    }
+    if let Err(e) = std::fs::remove_file("task2.pid") {
         error!("Failed to remove PID file: {}", e);
     }
 }
