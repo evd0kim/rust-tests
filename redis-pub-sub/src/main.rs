@@ -14,7 +14,7 @@ pub async fn main() -> Result<()> {
     let shutdown_signal = running.clone();
 
     let processor_handle = task::spawn(async move {
-        let mut client_a = match client::connect("127.0.0.1:6379").await {
+        let client_a = match client::connect("127.0.0.1:6379").await {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Failed to connect client A: {:?}", e);
@@ -22,10 +22,18 @@ pub async fn main() -> Result<()> {
             }
         };
 
-        let mut client_b = match client::connect("127.0.0.1:6379").await {
+        let client_b = match client::connect("127.0.0.1:6379").await {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Failed to connect client B: {:?}", e);
+                return;
+            }
+        };
+
+        let mut client_output = match client::connect("127.0.0.1:6379").await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to connect Output: {:?}", e);
                 return;
             }
         };
@@ -46,12 +54,34 @@ pub async fn main() -> Result<()> {
             }
         };
 
+        if let Err(e) = client_output.set("output", "init".into()).await {
+            eprintln!("Error setting data queue Output: {:?}", e);
+            return;
+        }
+
+        let result = client_output.get("output").await.ok();
+        sleep(Duration::from_millis(100)).await;
+        println!("Output ready? success={:?}", result.is_some());
+
+        let mut total_sum = 0;
+
         loop {
             select! {
                 msg_a = sub_a.next_message() => {
                     match msg_a {
                         Ok(Some(msg)) => {
-                            println!("Received new data in A channel: {}; message = {:?}", msg.channel, msg.content);
+                            let content = msg.content;
+                            match std::str::from_utf8(&content)
+                                .ok()
+                                .and_then(|s| s.parse::<i64>().ok()) {
+                                Some(num) => {
+                                    total_sum += num;
+                                    println!("A → Received: {} (sum = {})", num, total_sum);
+                                }
+                                None => {
+                                    println!("A → Skipping non-numeric message: {:?}", content);
+                                }
+                            }
                         },
                         Ok(None) => break, // Subscription closed
                         Err(e) => {
@@ -62,7 +92,18 @@ pub async fn main() -> Result<()> {
                 msg_b = sub_b.next_message() => {
                     match msg_b {
                         Ok(Some(msg)) => {
-                            println!("Received new data in B channel: {}; message = {:?}", msg.channel, msg.content);
+                            let content = msg.content;
+                            match std::str::from_utf8(&content)
+                                .ok()
+                                .and_then(|s| s.parse::<i64>().ok()) {
+                                Some(num) => {
+                                    total_sum += num;
+                                    println!("B → Received: {} (sum = {})", num, total_sum);
+                                }
+                                None => {
+                                    println!("B → Skipping non-numeric message: {:?}", content);
+                                }
+                            }
                         },
                         Ok(None) => break,
                         Err(e) => {
