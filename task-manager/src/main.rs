@@ -1,10 +1,10 @@
-use tokio::sync::broadcast;
-use tokio::time::Duration;
 use clap::{Arg, ArgAction, Command};
-use std::path::Path;
 use std::fs::File;
 use std::io::Write;
-use tracing::{info, error, warn, debug};
+use std::path::Path;
+use tokio::sync::broadcast;
+use tokio::time::Duration;
+use tracing::{debug, error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown_signal = setup_shutdown_handler(shutdown_tx.clone());
 
     // Set up resource management
-    let resources = setup_resources().await?;
+    setup_resources().await?;
 
     let (tx, mut rx1) = broadcast::channel(1);
     let mut rx2 = tx.subscribe();
@@ -148,11 +148,13 @@ fn cleanup_pid() {
 fn setup_shutdown_handler(shutdown_tx: broadcast::Sender<()>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let ctrl_c = async {
-            tokio::signal::ctrl_c().await.expect("Failed to install Ctrl+C handler")
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to install Ctrl+C handler")
         };
 
         #[cfg(unix)]
-            let terminate = async {
+        let terminate = async {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 .expect("Failed to install signal handler")
                 .recv()
@@ -160,7 +162,7 @@ fn setup_shutdown_handler(shutdown_tx: broadcast::Sender<()>) -> tokio::task::Jo
         };
 
         #[cfg(not(unix))]
-            let terminate = std::future::pending::<()>();
+        let terminate = std::future::pending::<()>();
 
         tokio::select! {
             _ = ctrl_c => {
