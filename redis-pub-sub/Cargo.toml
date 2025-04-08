@@ -1,0 +1,9 @@
+[package]
+name = "redis-pub-sub"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = "4.5.35"
+redis = "0.29.5"
+tokio = "1.44.2"
