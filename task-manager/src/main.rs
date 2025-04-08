@@ -38,11 +38,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if matches.get_flag("t1") {
             println!("Stopping Task 1...");
             stop_task("t1").await?;
+            stop_tasks().await?;
         }
 
         if matches.get_flag("t2") {
             println!("Stopping Task 2...");
             stop_task("t2").await?;
+            stop_tasks().await?;
         }
 
         // if no specific task was mentioned
@@ -91,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(_) = rx1.recv() => {
                 info!("Task 1 is cancelling due to shutdown signal");
             }
-            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+            _ = tokio::time::sleep(Duration::from_secs(20)) => {
                 info!("Task 1 completed normally");
             }
         }
@@ -107,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(_) = rx2.recv() => {
                 info!("Task 2 is cancelling due to shutdown signal");
             }
-            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+            _ = tokio::time::sleep(Duration::from_secs(20)) => {
                 info!("Task 2 completed normally");
             }
         }
@@ -198,8 +200,15 @@ fn cleanup_pid() {
     }
 }
 
-// Setup shutdown signal handling
-fn setup_shutdown_handler(shutdown_tx: broadcast::Sender<()>) -> tokio::task::JoinHandle<()> {
+fn setup_shutdown_handler(
+    shutdown_tx: broadcast::Sender<()>,
+) -> tokio::task::JoinHandle<()> {
+    use tokio::time::{sleep, Duration};
+    use std::path::Path;
+
+    // global pid file, should be somewhere else like in app config or something
+    let pid_file_path = "task_manager.pid";
+
     tokio::spawn(async move {
         let ctrl_c = async {
             tokio::signal::ctrl_c()
@@ -208,7 +217,7 @@ fn setup_shutdown_handler(shutdown_tx: broadcast::Sender<()>) -> tokio::task::Jo
         };
 
         #[cfg(unix)]
-        let terminate = async {
+            let terminate = async {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 .expect("Failed to install signal handler")
                 .recv()
@@ -216,7 +225,18 @@ fn setup_shutdown_handler(shutdown_tx: broadcast::Sender<()>) -> tokio::task::Jo
         };
 
         #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
+            let terminate = std::future::pending::<()>();
+
+        // Monitor PID file in a loop
+        let pid_file_check = async {
+            loop {
+                if !Path::new(pid_file_path).exists() {
+                    info!("PID file was removed. Initiating shutdown...");
+                    break;
+                }
+                sleep(Duration::from_secs(1)).await;
+            }
+        };
 
         tokio::select! {
             _ = ctrl_c => {
@@ -225,8 +245,12 @@ fn setup_shutdown_handler(shutdown_tx: broadcast::Sender<()>) -> tokio::task::Jo
             _ = terminate => {
                 info!("Received SIGTERM, initiating graceful shutdown");
             }
+            _ = pid_file_check => {
+                info!("PID file check triggered shutdown");
+            }
         }
 
         let _ = shutdown_tx.send(());
     })
 }
+
